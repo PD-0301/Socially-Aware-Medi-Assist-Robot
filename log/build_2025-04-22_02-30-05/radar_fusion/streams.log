@@ -1,0 +1,21 @@
+[0.562s] Invoking command in '/home/priyadarshan/Socially-Aware-Medi-Assist-Robot/radar_fusion': PYTHONPATH=/home/priyadarshan/Socially-Aware-Medi-Assist-Robot/build/radar_fusion/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/priyadarshan/Socially-Aware-Medi-Assist-Robot/install/radar_fusion/lib/python3.8/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/radar_fusion build --build-base /home/priyadarshan/Socially-Aware-Medi-Assist-Robot/build/radar_fusion/build install --record /home/priyadarshan/Socially-Aware-Medi-Assist-Robot/build/radar_fusion/install.log --install-scripts $base/lib/radar_fusion --single-version-externally-managed install_data
+[0.736s] running egg_info
+[0.736s] writing ../build/radar_fusion/radar_fusion.egg-info/PKG-INFO
+[0.736s] writing dependency_links to ../build/radar_fusion/radar_fusion.egg-info/dependency_links.txt
+[0.736s] writing entry points to ../build/radar_fusion/radar_fusion.egg-info/entry_points.txt
+[0.736s] writing requirements to ../build/radar_fusion/radar_fusion.egg-info/requires.txt
+[0.736s] writing top-level names to ../build/radar_fusion/radar_fusion.egg-info/top_level.txt
+[0.764s] reading manifest file '../build/radar_fusion/radar_fusion.egg-info/SOURCES.txt'
+[0.765s] writing manifest file '../build/radar_fusion/radar_fusion.egg-info/SOURCES.txt'
+[0.765s] running build
+[0.765s] running build_py
+[0.765s] running install
+[0.766s] running install_lib
+[0.767s] running install_data
+[0.767s] running install_egg_info
+[0.769s] removing '/home/priyadarshan/Socially-Aware-Medi-Assist-Robot/install/radar_fusion/lib/python3.8/site-packages/radar_fusion-0.1.0-py3.8.egg-info' (and everything under it)
+[0.769s] Copying ../build/radar_fusion/radar_fusion.egg-info to /home/priyadarshan/Socially-Aware-Medi-Assist-Robot/install/radar_fusion/lib/python3.8/site-packages/radar_fusion-0.1.0-py3.8.egg-info
+[0.770s] running install_scripts
+[0.783s] Installing radar_fusion_node script to /home/priyadarshan/Socially-Aware-Medi-Assist-Robot/install/radar_fusion/lib/radar_fusion
+[0.783s] writing list of installed files to '/home/priyadarshan/Socially-Aware-Medi-Assist-Robot/build/radar_fusion/install.log'
+[0.799s] Invoked command in '/home/priyadarshan/Socially-Aware-Medi-Assist-Robot/radar_fusion' returned '0': PYTHONPATH=/home/priyadarshan/Socially-Aware-Medi-Assist-Robot/build/radar_fusion/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/priyadarshan/Socially-Aware-Medi-Assist-Robot/install/radar_fusion/lib/python3.8/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/radar_fusion build --build-base /home/priyadarshan/Socially-Aware-Medi-Assist-Robot/build/radar_fusion/build install --record /home/priyadarshan/Socially-Aware-Medi-Assist-Robot/build/radar_fusion/install.log --install-scripts $base/lib/radar_fusion --single-version-externally-managed install_data

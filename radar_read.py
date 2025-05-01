@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # === Radar Serial Port Setup ===
-data_serial = serial.Serial('COM9', baudrate=921600, timeout=0.5)
+data_serial = serial.Serial('/dev/ttyACM0', baudrate=115200, timeout=0.5)
 MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
 
 # === Visualization Setup ===

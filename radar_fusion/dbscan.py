@@ -16,15 +16,15 @@ MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
 # === Radar filtering parameters ===
 FOV_LEFT = -60
 FOV_RIGHT = 60
-DIST_MIN = 0.2
+DIST_MIN = 0
 DIST_MAX = 10.0
-VEL_MIN = 2
+VEL_MIN = 3
 
 # === Kalman tracker class ===
 class RadarKalmanTracker:
     def __init__(self, initial_position):
         self.kf = KalmanFilter(dim_x=4, dim_z=2)
-        dt = 0.1  # Time step
+        dt = 0.1
         self.kf.F = np.array([[1, 0, dt, 0],
                               [0, 1, 0, dt],
                               [0, 0, 1, 0],
@@ -32,10 +32,10 @@ class RadarKalmanTracker:
         self.kf.H = np.array([[1, 0, 0, 0],
                               [0, 1, 0, 0]])
         x, y = initial_position
-        self.kf.x = np.array([[x], [y], [0], [0]])  # Initial state (position and velocity)
-        self.kf.P *= 20  # Initial covariance
-        self.kf.Q = np.eye(4) * 0.1  # Process noise
-        self.kf.R = np.eye(2) * 0.4  # Measurement noise
+        self.kf.x = np.array([[x], [y], [0], [0]])
+        self.kf.P *= 20
+        self.kf.Q = np.eye(4) * 0.1
+        self.kf.R = np.eye(2) * 0.4
 
     def update(self, position):
         self.kf.update(np.array(position))
