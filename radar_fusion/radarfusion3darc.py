@@ -1,152 +1,96 @@
-import rclpy
-from rclpy.node import Node
-from std_msgs.msg import String, Header
-from sensor_msgs.msg import PointCloud2, PointField, Image
-from geometry_msgs.msg import Twist
-import sensor_msgs_py.point_cloud2 as pc2
-from cv_bridge import CvBridge
 import serial
 import struct
 import math
-import cv2
-import matplotlib.pyplot as plt
 import numpy as np
+import cv2
+import time
+from ultralytics import YOLO
 
-class RadarObstacleNode(Node):
-    def __init__(self):
-        super().__init__('radar_obstacle_node')
+# === Radar Config ===
+PORT = '/dev/ttyACM1'
+BAUD = 921600
+MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
+DIST_THRESHOLD = 1.0  # meters
+VEL_THRESHOLD = 2.0   # m/s
 
-        # === Radar Serial Config ===
-        self.radar = serial.Serial('/dev/ttyACM1', baudrate=921600, timeout=0.5)
-        self.MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
+# === Camera Config ===
+CAM_INDEX = 2
+model = YOLO('yolov8n.pt')  # Use 'yolov8s.pt' for better accuracy
 
-        # === Publishers ===
-        self.obstacle_pub = self.create_publisher(String, 'radar/obstacle_status', 10)
-        self.pc_publisher = self.create_publisher(PointCloud2, 'radar/points', 10)
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+# === Serial Connection ===
+radar = serial.Serial(PORT, BAUD, timeout=0.5)
 
-        # === Camera Subscription ===
-        self.bridge = CvBridge()
-        self.image_sub = self.create_subscription(
-            Image,
-            '/camera/image_raw',
-            self.image_callback,
-            10
-        )
-        self.current_frame = None
+# === Radar Parser ===
+def get_radar_points():
+    data = radar.read(8192)
+    idx = data.find(MAGIC_WORD)
+    points = []
 
-        # === Detection Settings ===
-        self.min_detection_radius = 0.0
-        self.max_detection_radius = 8.0  # 10 meters
-
-        # === Plot Setup ===
-        plt.ion()
-        self.fig, self.ax = plt.subplots(figsize=(6, 6))
-        self.scatter = self.ax.scatter([], [], c='red')
-        self.ax.set_xlim(-10, 10)
-        self.ax.set_ylim(0, 12)
-        self.ax.set_title("📡 Live Radar View")
-        self.ax.set_xlabel("X (m)")
-        self.ax.set_ylabel("Y (m)")
-        self.ax.plot(0, 0, marker='o', color='black', markersize=6)
-        self.ax.text(0, 0.5, "Radar", ha='center')
-
-        # === Main Timer Callback ===
-        self.timer = self.create_timer(0.1, self.timer_callback)
-
-    def image_callback(self, msg):
+    if idx != -1 and len(data) > idx + 48:
         try:
-            self.current_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            cv2.imshow("Camera Feed", self.current_frame)
-            cv2.waitKey(1)
-        except Exception as e:
-            self.get_logger().error(f"Camera conversion failed: {e}")
-
-    def timer_callback(self):
-        data = self.radar.read(4096)
-        idx = data.find(self.MAGIC_WORD)
-        radar_points = []
-
-        if idx != -1 and len(data) > idx + 48:
             pkt_len = struct.unpack('<I', data[idx+12:idx+16])[0]
-            if len(data) >= idx + pkt_len:
-                num_obj = struct.unpack('<H', data[idx+28:idx+30])[0]
-                obj_start = idx + 48
-                for i in range(num_obj):
-                    try:
-                        x, y, z, v = struct.unpack('<ffff', data[obj_start+i*16:obj_start+(i+1)*16])
-                        radar_points.append((x, y, z, v))
-                    except:
-                        continue
+            num_obj = struct.unpack('<H', data[idx+28:idx+30])[0]
+            obj_start = idx + 48
+            for i in range(num_obj):
+                start = obj_start + i * 16
+                if len(data) >= start + 16:
+                    x, y, z, v = struct.unpack('<ffff', data[start:start+16])
+                    dist = math.hypot(x, y)
+                    if dist < DIST_THRESHOLD and abs(v) > VEL_THRESHOLD:
+                        points.append((x, y, v))
+        except:
+            pass
+    return points
 
-        # Filter radar points
-        filtered_points = []
-        detected = False
-        for x, y, z, v in radar_points:
-            distance = math.sqrt(x**2 + y**2)
-            if self.min_detection_radius <= distance <= self.max_detection_radius:
-                filtered_points.append((x, y, z, v))
-                detected = True
-                self.get_logger().info(f"🛑 Obstacle at ({x:.2f}, {y:.2f}) - Distance: {distance:.2f} m, Velocity: {v:.2f}")
+# === YOLO Inference ===
+def detect_camera_objects(frame):
+    results = model(frame, verbose=False)[0]
+    classes = [model.names[int(c)] for c in results.boxes.cls]
+    return classes
 
-        # Obstacle status
-        msg = String()
-        msg.data = "🚦 Obstacle Detected" if detected else "✅ Path Clear"
-        self.obstacle_pub.publish(msg)
+# === Main Loop ===
+cap = cv2.VideoCapture(CAM_INDEX)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-        # Motion control
-        twist = Twist()
-        if detected:
-            twist.linear.x = 0.0
-            twist.angular.z = 0.5
-        else:
-            twist.linear.x = 0.2
-            twist.angular.z = 0.0
-        self.cmd_pub.publish(twist)
+try:
+    while True:
+        radar_points = get_radar_points()
+        ret, frame = cap.read()
+        if not ret:
+            continue
 
-        # Publish PointCloud2
-        self.publish_pointcloud(filtered_points)
+        # Object detection
+        detected_objects = detect_camera_objects(frame)
 
-        # === Plot Radar Points ===
-        self.update_plot(filtered_points)
-
-    def update_plot(self, radar_points):
+        # === Decision Fusion ===
         if radar_points:
-            xy = np.array([(x, y) for (x, y, z, v) in radar_points])
-            self.scatter.set_offsets(xy)
+            print("📡 Radar: Detected object(s) within 1m")
+
+            if 'person' in detected_objects:
+                print("🛑 Human Detected → STOP")
+                action = "STOP"
+            elif any(cls in detected_objects for cls in ['chair', 'bench', 'tv']):
+                print("↩️ Furniture Detected → TURN")
+                action = "TURN"
+            else:
+                print("🐢 Unknown Obstacle → SLOW DOWN")
+                action = "SLOW"
         else:
-            self.scatter.set_offsets(np.empty((0, 2)))
-        self.fig.canvas.draw_idle()
-        self.fig.canvas.flush_events()
+            print("✅ Clear Path → MOVE FORWARD")
+            action = "MOVE"
 
-    def publish_pointcloud(self, radar_points):
-        if not radar_points:
-            return
-        header = self.get_clock().now().to_msg()
-        msg_header = Header(stamp=header, frame_id='map')
-        fields = [
-            PointField(name='x', offset=0,  datatype=PointField.FLOAT32, count=1),
-            PointField(name='y', offset=4,  datatype=PointField.FLOAT32, count=1),
-            PointField(name='z', offset=8,  datatype=PointField.FLOAT32, count=1),
-            PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
-        ]
-        radar_array = [(x, y, z, v) for (x, y, z, v) in radar_points]
-        cloud_msg = pc2.create_cloud(msg_header, fields, radar_array)
-        self.pc_publisher.publish(cloud_msg)
+        # Show action on frame
+        cv2.putText(frame, f"Action: {action}", (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        cv2.imshow("Fusion View", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-def main(args=None):
-    rclpy.init(args=args)
-    node = RadarObstacleNode()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        print("Shutting down...")
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
-        cv2.destroyAllWindows()
-        plt.ioff()
-        plt.show()
+except KeyboardInterrupt:
+    print("Shutting down...")
 
-if __name__ == '__main__':
-    main()
+finally:
+    cap.release()
+    radar.close()
+    cv2.destroyAllWindows()
