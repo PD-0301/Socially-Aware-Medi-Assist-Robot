@@ -13,15 +13,17 @@ RADAR_PORT = '/dev/ttyACM1'
 BAUD = 921600
 MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
 
-CIRCLE_RADIUS = 0.8
+CIRCLE_RADIUS = 0.9
 CENTER_LINE_X = 0
-FOV_LEFT = -60
-FOV_RIGHT = 60
-DIST_MIN = 0
-DIST_MAX = 10.0
-VEL_MIN = 1
 
-# === Kalman Tracker Class ===
+FOV_LEFT = -25
+FOV_RIGHT = 25
+DIST_MIN = 0
+DIST_MAX = 1.0
+VEL_MIN = 0
+#VEL_MAX = 3
+
+# === Kalman Tracker ===
 class RadarKalmanTracker:
     def __init__(self, initial_position):
         self.kf = KalmanFilter(dim_x=4, dim_z=2)
@@ -34,33 +36,38 @@ class RadarKalmanTracker:
                               [0, 1, 0, 0]])
         x, y = initial_position
         self.kf.x = np.array([[x], [y], [0], [0]])
-        self.kf.P *= 10
-        self.kf.Q = np.eye(4) * 0.05
-        self.kf.R = np.eye(2) * 0.3
+        self.kf.P *= 20
+        self.kf.Q = np.eye(4) * 0.1
+        self.kf.R = np.eye(2) * 0.4
+        self.last_updated = time.time()
 
     def update(self, position):
         self.kf.update(np.array(position))
+        self.last_updated = time.time()
 
     def predict(self):
         self.kf.predict()
         return self.kf.x[0, 0], self.kf.x[1, 0]
 
-# === Radar Serial Setup ===
+    def is_stale(self, timeout=1.0):
+        return (time.time() - self.last_updated) > timeout
+
+# === Serial Setup ===
 radar_ser = serial.Serial(RADAR_PORT, BAUD, timeout=0.5)
 
-# === Arducam Webcam Setup ===
+# === Webcam Setup ===
 cap = cv2.VideoCapture(2)
 cap.set(cv2.CAP_PROP_FPS, 30)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 if not cap.isOpened():
-    raise RuntimeError("❌ Cannot access Arducam on /dev/video2")
+    raise RuntimeError("Cannot access webcam")
 
 # === Matplotlib Setup ===
 plt.ion()
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-ax1.set_xlim(-8, 8)
-ax1.set_ylim(0, 16)
+fig, ax1 = plt.subplots(figsize=(7, 6))
+ax1.set_xlim(-4, 4)
+ax1.set_ylim(0, 10)
 ax1.set_title("Radar Clusters + Kalman")
 ax1.set_xlabel("X (m)")
 ax1.set_ylabel("Y (m)")
@@ -68,28 +75,24 @@ scatter = ax1.scatter([], [], c='red')
 ax1.plot(0, 0, marker='o', color='black', markersize=6)
 ax1.text(0, 0.5, "Radar", color='black', fontsize=9, ha='center')
 
-theta_left = math.radians(FOV_LEFT)
-theta_right = math.radians(FOV_RIGHT)
-x_left = DIST_MAX * math.sin(theta_left)
-y_left = DIST_MAX * math.cos(theta_left)
-x_right = DIST_MAX * math.sin(theta_right)
-y_right = DIST_MAX * math.cos(theta_right)
+# Draw radar FoV and center line
+x_left = DIST_MAX * math.sin(math.radians(FOV_LEFT))
+y_left = DIST_MAX * math.cos(math.radians(FOV_LEFT))
+x_right = DIST_MAX * math.sin(math.radians(FOV_RIGHT))
+y_right = DIST_MAX * math.cos(math.radians(FOV_RIGHT))
 ax1.plot([0, x_left], [0, y_left], '--', color='blue')
 ax1.plot([0, x_right], [0, y_right], '--', color='blue')
 ax1.fill([0, x_left, x_right], [0, y_left, y_right], color='blue', alpha=0.1, label="Radar FoV")
 ax1.axvline(x=CENTER_LINE_X, color='green', linestyle='-.', label="Center Line")
 ax1.legend(loc='upper right')
 
-img_plot = ax2.imshow(np.zeros((480, 640, 3), dtype=np.uint8))
-ax2.axis('off')
-ax2.set_title("Arducam Feed")
+cv2.namedWindow("Webcam Feed", cv2.WINDOW_AUTOSIZE)
 
-# === Radar Data Parser ===
+# === Radar Parser ===
 def get_radar_points():
     data = radar_ser.read(8192)
     idx = data.find(MAGIC_WORD)
     points = []
-
     if idx != -1 and len(data) > idx + 48:
         try:
             pkt_len = struct.unpack('<I', data[idx+12:idx+16])[0]
@@ -101,17 +104,20 @@ def get_radar_points():
                     x, y, z, v = struct.unpack('<ffff', data[start:start+16])
                     theta = math.degrees(math.atan2(x, y))
                     dist = math.hypot(x, y)
-                    if FOV_LEFT <= theta <= FOV_RIGHT and DIST_MIN <= dist <= DIST_MAX and abs(v) >= VEL_MIN:
-                        points.append((x, y))
+                    #if not (FOV_LEFT <= theta <= FOV_RIGHT):
+                     #   continue
+                    if dist < DIST_MIN or dist > DIST_MAX:
+                        continue
+                    # if abs(v) < VEL_MIN:
+                    #     continue
+                    points.append((x, y))
         except Exception as e:
             print(f"[ERROR] Radar parsing: {e}")
     return points
 
-# === Kalman Trackers ===
+# === Main Loop ===
 trackers = []
 prev_time = time.time()
-
-import gc  # Garbage collection to reduce frame drop
 
 try:
     while True:
@@ -120,7 +126,7 @@ try:
 
         if radar_points:
             points = np.array(radar_points)
-            clustering = DBSCAN(eps=0.6, min_samples=4).fit(points)
+            clustering = DBSCAN(eps=0.27, min_samples=4).fit(points)
             labels = clustering.labels_
             for label in set(labels):
                 if label == -1:
@@ -131,6 +137,9 @@ try:
                 cx = np.mean(cluster[:, 0])
                 cy = np.mean(cluster[:, 1])
                 new_centroids.append((cx, cy))
+
+        # Remove stale trackers
+        trackers = [t for t in trackers if not t.is_stale(timeout=1.0)]
 
         if len(new_centroids) != len(trackers):
             trackers = [RadarKalmanTracker(pos) for pos in new_centroids]
@@ -148,31 +157,30 @@ try:
         for x, y in predicted_positions:
             circle = plt.Circle((x, y), CIRCLE_RADIUS, color='orange', fill=False, linestyle='--')
             ax1.add_patch(circle)
-            if abs(x - CENTER_LINE_X) <= CIRCLE_RADIUS:
+            if abs(x - CENTER_LINE_X) <= CIRCLE_RADIUS and y <= 4.0:
                 stop_flag = True
 
-        print("🚫 STOP: Object intersecting center line!" if stop_flag else "✅ CLEAR")
+        print("\U0001f6d1 STOP: Object intersecting center line!" if stop_flag else "\u2705 CLEAR")
 
         ret, frame = cap.read()
         if ret:
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img_plot.set_data(frame_rgb)
+            cv2.imshow("Webcam Feed", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
         curr_time = time.time()
-        fps = 1.0 / max(0.01, curr_time - prev_time)
+        fps = 1.0 / (curr_time - prev_time)
         prev_time = curr_time
         ax1.text(-7.5, 15.5, f"FPS: {fps:.2f}", fontsize=10, bbox=dict(facecolor='white', alpha=0.6))
 
         fig.canvas.draw_idle()
         fig.canvas.flush_events()
-
-        # Frame drop mitigation
-        gc.collect()
         time.sleep(0.01)
 
 except KeyboardInterrupt:
-    print("🔻 Exiting...")
+    print("\ud83d\udd39 Exiting...")
     cap.release()
+    cv2.destroyAllWindows()
     radar_ser.close()
     plt.ioff()
     plt.show()
